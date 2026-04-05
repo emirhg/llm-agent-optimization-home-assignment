@@ -213,3 +213,6 @@ __marimo__/
 # Skills
 .agents/
 skills-lock.json
+
+# Linked documentation worktree (orphan branch checkout); see doc-worktree/README.md
+/doc-worktree/
