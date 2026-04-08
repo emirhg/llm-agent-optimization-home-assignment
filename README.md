@@ -29,7 +29,7 @@ The baseline pipeline will run, but key functionality—particularly around vali
 - Single SQLite table with gaming and mental health survey data
 - Public tests and benchmark script
 - OpenRouter integration via [OpenRouter Python SDK](https://pypi.org/project/openrouter/)
-- Configurable model (default: `openai/gpt-5-nano`, override via `OPENROUTER_MODEL`)
+- Configurable model (default: `openai/gpt-4o-mini`, override via `OPENROUTER_MODEL`; `openai/gpt-5-nano` works but is less reliable for strict JSON SQL)
 
 ## Assignment Tasks
 
