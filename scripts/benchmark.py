@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.observability import configure_logging
 from src.pipeline import AnalyticsPipeline
 from scripts.gaming_csv_to_db import csv_to_sqlite
 from scripts.gaming_csv_to_db import (
@@ -33,12 +34,14 @@ def percentile(values: list[float], p: float) -> float:
         return 0.0
     sorted_vals = sorted(values)
     idx = min(
-        len(sorted_vals) - 1, max(0, int(round((p / 100.0) * (len(sorted_vals) - 1))))
+        len(sorted_vals) - 1,
+        max(0, int(round((p / 100.0) * (len(sorted_vals) - 1)))),
     )
     return sorted_vals[idx]
 
 
 def main() -> None:
+    configure_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--runs", type=int, default=3, help="Number of full prompt-set repetitions."

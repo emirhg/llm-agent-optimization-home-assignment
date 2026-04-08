@@ -4,10 +4,13 @@ import sqlite3
 import time
 from pathlib import Path
 
+from src.gaming_schema import sql_generation_context
 from src.llm_client import OpenRouterLLMClient, build_default_llm_client
+from src.observability import logger, new_request_id, record_pipeline_outcome, span
+from src.sql_validator import destructive_question_error, off_schema_question_error, validate_sql
 from src.types import (
-    SQLValidationOutput,
     SQLExecutionOutput,
+    SQLValidationOutput,
     PipelineOutput,
 )
 
@@ -18,30 +21,6 @@ DEFAULT_DB_PATH = BASE_DIR / "data" / "gaming_mental_health.sqlite"
 
 class SQLValidationError(Exception):
     pass
-
-
-class SQLValidator:
-    @classmethod
-    def validate(cls, sql: str | None) -> SQLValidationOutput:
-        start = time.perf_counter()
-
-        if sql is None:
-            return SQLValidationOutput(
-                is_valid=False,
-                validated_sql=None,
-                error="No SQL provided",
-                timing_ms=(time.perf_counter() - start) * 1000,
-            )
-
-        # TODO: Implement SQL validation logic
-        # Consider what validation is needed for this use case
-
-        return SQLValidationOutput(
-            is_valid=True,
-            validated_sql=sql,
-            error=None,
-            timing_ms=(time.perf_counter() - start) * 1000,
-        )
 
 
 class SQLiteExecutor:
@@ -90,35 +69,61 @@ class AnalyticsPipeline:
 
     def run(self, question: str, request_id: str | None = None) -> PipelineOutput:
         start = time.perf_counter()
+        rid = request_id or new_request_id()
+        ctx = sql_generation_context()
 
-        # Stage 1: SQL Generation
-        sql_gen_output = self.llm.generate_sql(question, {})
-        sql = sql_gen_output.sql
+        with span("pipeline_run", request_id=rid):
+            with span("sql_generation", request_id=rid):
+                sql_gen_output = self.llm.generate_sql(question, ctx)
+            sql = sql_gen_output.sql
 
-        # Stage 2: SQL Validation
-        validation_output = SQLValidator.validate(sql)
+            with span("sql_validation", request_id=rid):
+                v_start = time.perf_counter()
+                nl_block = destructive_question_error(question) or off_schema_question_error(question)
+                if nl_block:
+                    validation_output = SQLValidationOutput(
+                        is_valid=False,
+                        validated_sql=None,
+                        error=nl_block,
+                        timing_ms=(time.perf_counter() - v_start) * 1000,
+                    )
+                    sql = None
+                else:
+                    validation_output = validate_sql(sql)
+            if not validation_output.is_valid:
+                sql = None
+
+            with span("sql_execution", request_id=rid):
+                execution_output = self.executor.run(sql)
+            rows = execution_output.rows
+
+            with span("answer_generation", request_id=rid):
+                answer_output = self.llm.generate_answer(question, sql, rows)
+
+        # Prefer validation outcome over LLM transport errors when SQL is absent.
         if not validation_output.is_valid:
-            sql = None
-
-        # Stage 3: SQL Execution
-        execution_output = self.executor.run(sql)
-        rows = execution_output.rows
-
-        # Stage 4: Answer Generation
-        answer_output = self.llm.generate_answer(question, sql, rows)
-
-        # Determine status
-        status = "success"
-        if sql_gen_output.sql is None and sql_gen_output.error:
-            status = "unanswerable"
-        elif not validation_output.is_valid:
             status = "invalid_sql"
+        elif sql_gen_output.sql is None and sql_gen_output.error:
+            status = "unanswerable"
         elif execution_output.error:
             status = "error"
         elif sql is None:
             status = "unanswerable"
+        else:
+            status = "success"
 
-        # Build timings aggregate
+        answer = answer_output.answer
+        if (
+            status == "error"
+            and execution_output.error
+            and "no such column" in execution_output.error.lower()
+        ):
+            status = "unanswerable"
+            answer = (
+                "I cannot answer this with the available table and schema. "
+                "Please rephrase using known survey fields."
+            )
+
         timings = {
             "sql_generation_ms": sql_gen_output.timing_ms,
             "sql_validation_ms": validation_output.timing_ms,
@@ -127,7 +132,6 @@ class AnalyticsPipeline:
             "total_ms": (time.perf_counter() - start) * 1000,
         }
 
-        # Build total LLM stats
         total_llm_stats = {
             "llm_calls": sql_gen_output.llm_stats.get("llm_calls", 0) + answer_output.llm_stats.get("llm_calls", 0),
             "prompt_tokens": sql_gen_output.llm_stats.get("prompt_tokens", 0) + answer_output.llm_stats.get("prompt_tokens", 0),
@@ -136,17 +140,27 @@ class AnalyticsPipeline:
             "model": sql_gen_output.llm_stats.get("model", "unknown"),
         }
 
+        record_pipeline_outcome(status)
+        logger.info(
+            "pipeline_done request_id=%s status=%s total_ms=%.2f llm_calls=%s tokens=%s",
+            rid,
+            status,
+            timings["total_ms"],
+            total_llm_stats["llm_calls"],
+            total_llm_stats["total_tokens"],
+        )
+
         return PipelineOutput(
             status=status,
             question=question,
-            request_id=request_id,
+            request_id=rid,
             sql_generation=sql_gen_output,
             sql_validation=validation_output,
             sql_execution=execution_output,
             answer_generation=answer_output,
             sql=sql,
             rows=rows,
-            answer=answer_output.answer,
+            answer=answer,
             timings=timings,
             total_llm_stats=total_llm_stats,
         )
