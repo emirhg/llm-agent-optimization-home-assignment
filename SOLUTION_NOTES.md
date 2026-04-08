@@ -49,6 +49,6 @@ README reference baseline (~2900 ms avg, ~600 tokens) used different hardware/mo
 
 ---
 
-**Completed by:** Assignment developer  
+**Completed by:** Emir Herrera González
 **Date:** 2026-04-07  
-**Time spent:** ~6 hours
+**Time spent:** ~5 hours
