@@ -136,6 +136,8 @@ The current pipeline handles single, isolated questions. In real-world scenarios
 - No skeleton code or boilerplate is provided - design the solution architecture yourself.
 - If implemented, document your approach in `CHECKLIST.md` under a "Follow-Up Questions" section.
 
+This repository includes an optional implementation: `src/conversation.py` (`ConversationPipeline`, `ConversationSession`). Unit tests: `python3 -m unittest tests.test_conversation`.
+
 ## General Notes
 - The baseline intentionally leaves room for substantial optimization.
 - Hidden evaluation includes paraphrased prompts and edge/failure cases.

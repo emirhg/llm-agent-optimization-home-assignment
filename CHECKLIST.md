@@ -97,21 +97,21 @@ Ground SQL generation in the real table schema (column list + table name), add O
 
 **Only complete this section if you implemented the optional follow-up questions feature.**
 
-- [ ] **Intent detection for follow-ups**
-  - Description: Not implemented.
+- [x] **Intent detection for follow-ups**
+  - Description: `classify_followup()` in `src/conversation.py` uses deterministic phrase heuristics (e.g. explain/clarify → reuse prior SQL; sort/what about/filter → new SQL). No extra LLM call.
 
-- [ ] **Context-aware SQL generation**
-  - Description: Not implemented.
+- [x] **Context-aware SQL generation**
+  - Description: `ConversationPipeline` passes `conversation_summary` (last few Q/A/SQL snippets) via `generate_sql` context; `generate_answer` accepts optional `prior_answer` on reuse turns.
 
-- [ ] **Context persistence**
-  - Description: Not implemented.
+- [x] **Context persistence**
+  - Description: `ConversationSession` holds in-memory turns with configurable `max_turns` (FIFO trim). No cross-process store.
 
-- [ ] **Ambiguity resolution**
-  - Description: Not implemented.
+- [x] **Ambiguity resolution**
+  - Description: Ambiguous follow-ups default to `NEW_QUERY` (conservative). Explicit explain-style phrases route to `REUSE_PRIOR_SQL` (re-execute last validated SQL, no SQL LLM).
 
 **Approach summary:**
 ```
-Not in scope for this submission; single-turn pipeline only.
+`ConversationPipeline.run_turn(session, question)` appends a `ConversationTurn` after each run. Reuse path stubs `SQLGenerationOutput` with zero SQL LLM calls, re-validates and re-executes prior SQL, then answers with prior assistant text in the prompt. New-query path mirrors single-turn validation/execution but enriches SQL context from session history. Shared `resolve_status_and_answer` / aggregates live in `src/pipeline.py`. Unit tests: `tests/test_conversation.py` (fake LLM + temp SQLite; no OpenRouter).
 ```
 
 ---
@@ -125,12 +125,12 @@ Typed stage outputs preserved for eval; deterministic SQL and NL guards reduce d
 
 **Key improvements over baseline:**
 ```
-Token counting; SQL validation; schema-conditioned prompts; robust JSON/SQL extraction and repair; status semantics aligned with tests; observability hooks; benchmark script fix; default model suited to JSON-mode SQL generation.
+Token counting; SQL validation; schema-conditioned prompts; robust JSON/SQL extraction and repair; status semantics aligned with tests; observability hooks; benchmark script fix; default model suited to JSON-mode SQL generation; optional multi-turn session layer (`src/conversation.py`).
 ```
 
 **Known limitations or future work:**
 ```
-Off-schema detection uses a keyword list (extend or replace with column NER). SQL validation is regex/heuristic, not a full parser. No OTel export yet. Multi-turn and advanced answer verification (LLM-as-judge) are out of scope. Hidden eval may need further prompt tuning for paraphrases.
+Off-schema detection uses a keyword list (extend or replace with column NER). SQL validation is regex/heuristic, not a full parser. No OTel export yet. Multi-turn routing is keyword-based (no LLM intent classifier); sessions are in-memory only. Advanced answer verification (LLM-as-judge) is out of scope. Hidden eval may need further prompt tuning for paraphrases.
 ```
 
 ---

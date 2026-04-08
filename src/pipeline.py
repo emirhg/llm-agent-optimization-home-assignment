@@ -3,13 +3,16 @@ from __future__ import annotations
 import sqlite3
 import time
 from pathlib import Path
+from typing import Any
 
 from src.gaming_schema import sql_generation_context
 from src.llm_client import OpenRouterLLMClient, build_default_llm_client
 from src.observability import logger, new_request_id, record_pipeline_outcome, span
 from src.sql_validator import destructive_question_error, off_schema_question_error, validate_sql
 from src.types import (
+    AnswerGenerationOutput,
     SQLExecutionOutput,
+    SQLGenerationOutput,
     SQLValidationOutput,
     PipelineOutput,
 )
@@ -17,6 +20,68 @@ from src.types import (
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_DB_PATH = BASE_DIR / "data" / "gaming_mental_health.sqlite"
+
+
+def resolve_status_and_answer(
+    *,
+    validation_output: SQLValidationOutput,
+    sql_gen_output: SQLGenerationOutput,
+    execution_output: SQLExecutionOutput,
+    sql: str | None,
+    answer: str,
+) -> tuple[str, str]:
+    """Derive pipeline status and final user-facing answer (shared single- and multi-turn paths)."""
+    if not validation_output.is_valid:
+        status = "invalid_sql"
+    elif sql_gen_output.sql is None and sql_gen_output.error:
+        status = "unanswerable"
+    elif execution_output.error:
+        status = "error"
+    elif sql is None:
+        status = "unanswerable"
+    else:
+        status = "success"
+
+    if (
+        status == "error"
+        and execution_output.error
+        and "no such column" in execution_output.error.lower()
+    ):
+        status = "unanswerable"
+        answer = (
+            "I cannot answer this with the available table and schema. "
+            "Please rephrase using known survey fields."
+        )
+
+    return status, answer
+
+
+def aggregate_timings(
+    *,
+    sql_generation_ms: float,
+    sql_validation_ms: float,
+    sql_execution_ms: float,
+    answer_generation_ms: float,
+    total_ms: float,
+) -> dict[str, float]:
+    return {
+        "sql_generation_ms": sql_generation_ms,
+        "sql_validation_ms": sql_validation_ms,
+        "sql_execution_ms": sql_execution_ms,
+        "answer_generation_ms": answer_generation_ms,
+        "total_ms": total_ms,
+    }
+
+
+def aggregate_llm_stats(sql_gen: SQLGenerationOutput, answer_gen: AnswerGenerationOutput) -> dict[str, Any]:
+    return {
+        "llm_calls": sql_gen.llm_stats.get("llm_calls", 0) + answer_gen.llm_stats.get("llm_calls", 0),
+        "prompt_tokens": sql_gen.llm_stats.get("prompt_tokens", 0) + answer_gen.llm_stats.get("prompt_tokens", 0),
+        "completion_tokens": sql_gen.llm_stats.get("completion_tokens", 0)
+        + answer_gen.llm_stats.get("completion_tokens", 0),
+        "total_tokens": sql_gen.llm_stats.get("total_tokens", 0) + answer_gen.llm_stats.get("total_tokens", 0),
+        "model": sql_gen.llm_stats.get("model", "unknown"),
+    }
 
 
 class SQLValidationError(Exception):
@@ -102,45 +167,23 @@ class AnalyticsPipeline:
             with span("answer_generation", request_id=rid):
                 answer_output = self.llm.generate_answer(question, sql, rows)
 
-        # Prefer validation outcome over LLM transport errors when SQL is absent.
-        if not validation_output.is_valid:
-            status = "invalid_sql"
-        elif sql_gen_output.sql is None and sql_gen_output.error:
-            status = "unanswerable"
-        elif execution_output.error:
-            status = "error"
-        elif sql is None:
-            status = "unanswerable"
-        else:
-            status = "success"
+        status, answer = resolve_status_and_answer(
+            validation_output=validation_output,
+            sql_gen_output=sql_gen_output,
+            execution_output=execution_output,
+            sql=sql,
+            answer=answer_output.answer,
+        )
 
-        answer = answer_output.answer
-        if (
-            status == "error"
-            and execution_output.error
-            and "no such column" in execution_output.error.lower()
-        ):
-            status = "unanswerable"
-            answer = (
-                "I cannot answer this with the available table and schema. "
-                "Please rephrase using known survey fields."
-            )
+        timings = aggregate_timings(
+            sql_generation_ms=sql_gen_output.timing_ms,
+            sql_validation_ms=validation_output.timing_ms,
+            sql_execution_ms=execution_output.timing_ms,
+            answer_generation_ms=answer_output.timing_ms,
+            total_ms=(time.perf_counter() - start) * 1000,
+        )
 
-        timings = {
-            "sql_generation_ms": sql_gen_output.timing_ms,
-            "sql_validation_ms": validation_output.timing_ms,
-            "sql_execution_ms": execution_output.timing_ms,
-            "answer_generation_ms": answer_output.timing_ms,
-            "total_ms": (time.perf_counter() - start) * 1000,
-        }
-
-        total_llm_stats = {
-            "llm_calls": sql_gen_output.llm_stats.get("llm_calls", 0) + answer_output.llm_stats.get("llm_calls", 0),
-            "prompt_tokens": sql_gen_output.llm_stats.get("prompt_tokens", 0) + answer_output.llm_stats.get("prompt_tokens", 0),
-            "completion_tokens": sql_gen_output.llm_stats.get("completion_tokens", 0) + answer_output.llm_stats.get("completion_tokens", 0),
-            "total_tokens": sql_gen_output.llm_stats.get("total_tokens", 0) + answer_output.llm_stats.get("total_tokens", 0),
-            "model": sql_gen_output.llm_stats.get("model", "unknown"),
-        }
+        total_llm_stats = aggregate_llm_stats(sql_gen_output, answer_output)
 
         record_pipeline_outcome(status)
         logger.info(
