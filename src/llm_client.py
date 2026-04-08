@@ -154,11 +154,11 @@ class OpenRouterLLMClient:
             f'Shape: {{"sql": "SELECT ... FROM {table} ..."}}. '
             "The sql field must be a single valid SQLite SELECT against that table."
         )
-        user_prompt = (
-            f"Table {table} columns:\n{columns}\n\n"
-            f"Question:\n{question}\n\n"
-            "Return JSON: {\"sql\": \"...\"}"
-        )
+        user_prompt = f"Table {table} columns:\n{columns}\n\n"
+        conv = context.get("conversation_summary")
+        if isinstance(conv, str) and conv.strip():
+            user_prompt += f"Prior conversation (follow-up context):\n{conv.strip()}\n\n"
+        user_prompt += f'Question:\n{question}\n\nReturn JSON: {{"sql": "..."}}'
 
         start = time.perf_counter()
         error = None
@@ -250,7 +250,14 @@ class OpenRouterLLMClient:
             error=error,
         )
 
-    def generate_answer(self, question: str, sql: str | None, rows: list[dict[str, Any]]) -> AnswerGenerationOutput:
+    def generate_answer(
+        self,
+        question: str,
+        sql: str | None,
+        rows: list[dict[str, Any]],
+        *,
+        prior_answer: str | None = None,
+    ) -> AnswerGenerationOutput:
         if not sql:
             return AnswerGenerationOutput(
                 answer="I cannot answer this with the available table and schema. Please rephrase using known survey fields.",
@@ -270,7 +277,10 @@ class OpenRouterLLMClient:
             "You are a concise analytics assistant. "
             "Use only the provided SQL results. Do not invent data."
         )
-        user_prompt = (
+        user_prompt = ""
+        if prior_answer and prior_answer.strip():
+            user_prompt += f"Previous assistant answer:\n{prior_answer.strip()}\n\n"
+        user_prompt += (
             f"Question:\n{question}\n\nSQL:\n{sql}\n\n"
             f"Rows (JSON):\n{json.dumps(rows[:30], ensure_ascii=True)}\n\n"
             "Write a concise answer in plain English."
