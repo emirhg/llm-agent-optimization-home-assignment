@@ -27,6 +27,31 @@ class SqlValidatorTests(unittest.TestCase):
         out = validate_sql("SELECT * FROM other_table")
         self.assertFalse(out.is_valid)
 
+    def test_allows_cte_reading_survey_table(self) -> None:
+        sql = (
+            "WITH age_stats AS ("
+            " SELECT age, AVG(addiction_level) AS avg_addiction FROM gaming_mental_health GROUP BY age"
+            ") "
+            "SELECT age, avg_addiction FROM age_stats ORDER BY avg_addiction DESC LIMIT 5"
+        )
+        out = validate_sql(sql)
+        self.assertTrue(out.is_valid)
+        self.assertIsNotNone(out.validated_sql)
+
+    def test_allows_replace_scalar_function(self) -> None:
+        out = validate_sql(
+            "SELECT REPLACE(age, '0', '') AS age_norm FROM gaming_mental_health LIMIT 1"
+        )
+        self.assertTrue(out.is_valid)
+        self.assertIsNotNone(out.validated_sql)
+
+    def test_rejects_replace_into(self) -> None:
+        out = validate_sql(
+            "REPLACE INTO gaming_mental_health (age) VALUES (30)"
+        )
+        self.assertFalse(out.is_valid)
+        self.assertIsNotNone(out.error)
+
     def test_destructive_question_phrase(self) -> None:
         err = destructive_question_error("Please delete all rows from the gaming_mental_health table")
         self.assertIsNotNone(err)

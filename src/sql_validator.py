@@ -9,11 +9,14 @@ from src.gaming_schema import TABLE_NAME
 from src.types import SQLValidationOutput
 
 # Word-boundary disallowed statement types / pragmas (not inside identifiers for our schema).
+# REPLACE is omitted here: SQLite's scalar REPLACE() would false-positive; block REPLACE INTO below.
 _FORBIDDEN_KEYWORD = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|REPLACE|"
+    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|"
     r"TRUNCATE|VACUUM|BEGIN|COMMIT|ROLLBACK|GRANT|REVOKE|CALL|EXEC|EXECUTE)\b",
     re.IGNORECASE,
 )
+
+_REPLACE_INTO = re.compile(r"\bREPLACE\s+INTO\b", re.IGNORECASE)
 
 FROM_GAMING_TABLE = re.compile(
     rf"\bFROM\s+[`\"]?(?P<t>{re.escape(TABLE_NAME)})[`\"]?\b",
@@ -65,7 +68,7 @@ def off_schema_question_error(question: str) -> str | None:
 
 
 def validate_sql(sql: str | None) -> SQLValidationOutput:
-    """Allow only single-statement SELECTs against the configured survey table."""
+    """Allow single-statement SELECT or WITH (CTE) queries that read the configured survey table."""
     start = time.perf_counter()
 
     def done(is_valid: bool, validated: str | None, error: str | None) -> SQLValidationOutput:
@@ -88,10 +91,13 @@ def validate_sql(sql: str | None) -> SQLValidationOutput:
         return done(False, None, "Only a single SQL statement is allowed")
 
     stmt = parts[0]
-    if not re.match(r"^\s*SELECT\b", stmt, re.IGNORECASE):
-        return done(False, None, "Only SELECT queries are permitted")
+    if not (
+        re.match(r"^\s*SELECT\b", stmt, re.IGNORECASE)
+        or re.match(r"^\s*WITH\b", stmt, re.IGNORECASE)
+    ):
+        return done(False, None, "Only SELECT or WITH (CTE) queries are permitted")
 
-    if _FORBIDDEN_KEYWORD.search(stmt):
+    if _FORBIDDEN_KEYWORD.search(stmt) or _REPLACE_INTO.search(stmt):
         return done(False, None, "Query contains disallowed SQL operations")
 
     if not FROM_GAMING_TABLE.search(stmt):

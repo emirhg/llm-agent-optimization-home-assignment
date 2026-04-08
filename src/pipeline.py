@@ -92,6 +92,8 @@ class AnalyticsPipeline:
                     validation_output = validate_sql(sql)
             if not validation_output.is_valid:
                 sql = None
+            elif validation_output.validated_sql is not None:
+                sql = validation_output.validated_sql
 
             with span("sql_execution", request_id=rid):
                 execution_output = self.executor.run(sql)
