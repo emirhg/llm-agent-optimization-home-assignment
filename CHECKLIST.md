@@ -146,19 +146,19 @@ Include your before/after benchmark results here.
 - Success rate: `0 %`
 
 **Your solution:**
-- Average latency: `3890 ms`
-- p50 latency: `3969 ms`
-- p95 latency: `4505 ms`
-- Success rate: `100 %` (12/12 on `public_prompts.json`, 1 run)
+- Average latency: `3620 ms`
+- p50 latency: `3725 ms`
+- p95 latency: `4680 ms`
+- Success rate: `100 %` (36 samples: 3×12 prompts on `public_prompts.json`)
 
 **LLM efficiency:**
-- Average tokens per request: `~600–1100` (varies by question; typical successful run ~400–1000 total tokens with `gpt-4o-mini`)
+- Average tokens per request: `~400–1100` total (varies by prompt; observed range with `gpt-4o-mini`)
 - Average LLM calls per request: `2` when both SQL and answer stages call the model
 
-_Command: `python3 scripts/benchmark.py --runs 3` (metrics above from `--runs 1` on reference workspace; re-run for your hardware)._
+_Command: `python3 scripts/benchmark.py --runs 3` (executed 2026-04-07 on submitter hardware)._
 
 ---
 
-**Completed by:** Assignment developer  
+**Completed by:** Emir Herrera González  
 **Date:** 2026-04-07  
 **Time spent:** ~6 hours
