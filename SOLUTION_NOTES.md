@@ -25,12 +25,14 @@ Engineering summary for the GenAI Labs analytics pipeline assignment. See [READM
 
 ## Measured impact
 
-| Metric | Early benchmark (nano, pre-fix) | After work (`gpt-4o-mini`, 1×12 prompts) |
-|--------|----------------------------------|-------------------------------------------|
+| Metric | Early benchmark (nano, pre-fix) | Latest (`gpt-4o-mini`, `benchmark.py --runs 3`) |
+|--------|----------------------------------|--------------------------------------------------|
 | Benchmark runnable | No (`TypeError` on status) | Yes |
-| Success rate (public prompts) | 0% | 100% |
-| Avg latency | ~9590 ms | ~3890 ms |
-| p50 / p95 | ~9860 / ~11859 ms | ~3969 / ~4505 ms |
+| Success rate (public prompts) | 0% | 100% (36 samples) |
+| Avg latency | ~9590 ms | ~3620 ms |
+| p50 / p95 | ~9860 / ~11859 ms | ~3725 / ~4680 ms |
+
+_Command:_ `python3 scripts/benchmark.py --runs 3` _on 2026-04-07._
 
 README reference baseline (~2900 ms avg, ~600 tokens) used different hardware/model; treat as directional only.
 
@@ -56,6 +58,6 @@ README reference baseline (~2900 ms avg, ~600 tokens) used different hardware/mo
 
 ---
 
-**Completed by:** Emir Herrera González
+**Completed by:** Emir Herrera González  
 **Date:** 2026-04-07  
-**Time spent:** ~5 hours
+**Time spent:** ~6 hours
